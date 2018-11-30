@@ -140,4 +140,5 @@ RUN phpize && \
     make && \
     make install && \
     echo extension=pdo_oci.so > /usr/local/etc/php/conf.d/pdo_oci.ini && \
+    rm -fr /var/www/php_oci && \
     php -v
