@@ -32,9 +32,6 @@ RUN apt-get update && \
             openssh-client \
             nano \
             unzip \
-	    wget \
-            bsdtar \
-            libaio1 \
         --no-install-recommends && \
         apt-get clean && \
         rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
@@ -72,7 +69,7 @@ RUN printf "\n" | pecl install \
 RUN cd /tmp && \
     git clone git://github.com/xdebug/xdebug.git && \
     cd xdebug && \
-    git checkout 2.6.1 && \
+    git checkout 2.7.0beta1 && \
     phpize && \
     ./configure --enable-xdebug && \
     make && \
@@ -81,7 +78,7 @@ RUN cd /tmp && \
 
 # Environment settings
 ENV PHP_USER_ID=33 \
-    PHP_ENABLE_XDEBUG=0 \
+    PHP_ENABLE_XDEBUG=1 \
     PATH=/app:/app/vendor/bin:/root/.composer/vendor/bin:$PATH \
     TERM=linux \
     VERSION_PRESTISSIMO_PLUGIN=^0.3.7 \
@@ -89,6 +86,33 @@ ENV PHP_USER_ID=33 \
 
 # Add configuration files
 COPY image-files/ /
+
+RUN mkdir /opt/oracle
+COPY oracle_instant_client/ /opt/oracle
+
+ENV LD_LIBRARY_PATH=/usr/lib/oracle/18.3/client64/lib/${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+ENV ORACLE_HOME=/usr/lib/oracle/18.3/client64
+ENV C_INCLUDE_PATH=/usr/include/oracle/18.3/client64/
+
+RUN apt-get update && \
+    apt-get install --no-install-recommends --assume-yes --quiet \
+        rpm \
+        libaio1 \
+        alien \
+        build-essential \
+        apt-transport-https \
+        libmcrypt-dev \
+        zlib1g-dev \
+        libxslt-dev \
+        libpng-dev && \
+    rm -rf /var/lib/apt/lists/* && \
+    alien -i /opt/oracle/oracle-instantclient18.3-basic-18.3.0.0.0-1.x86_64.rpm && \
+    alien -i /opt/oracle/oracle-instantclient18.3-devel-18.3.0.0.0-1.x86_64.rpm && \
+    echo "/usr/lib/oracle/18.3/client64/lib/" > /etc/ld.so.conf.d/oracle.conf && \
+    chmod o+r /etc/ld.so.conf.d/oracle.conf && \
+    ln -s /usr/include/oracle/18.3/client64 $ORACLE_HOME/include && \
+    docker-php-ext-install pdo oci8 pdo_oci && \
+    rm -rf /opt/oracle
 
 # Add GITHUB_API_TOKEN support for composer
 RUN chmod 777 \
@@ -112,33 +136,8 @@ RUN if command -v a2enmod >/dev/null 2>&1; then \
         a2enmod rewrite headers \
     ;fi
 
+RUN /usr/sbin/service apache2 restart
+
 # Install Yii framework bash autocompletion
 RUN curl -L https://raw.githubusercontent.com/yiisoft/yii2/master/contrib/completion/bash/yii \
         -o /etc/bash_completion.d/yii
-
-# Install oci8
-RUN wget -qO- https://raw.githubusercontent.com/grptx/php-fpm-oci8/master/oracle/instantclient-basic-linux.x64-12.2.0.1.0.zip | bsdtar -xvf- -C /usr/local && \
- wget -qO- https://raw.githubusercontent.com/grptx/php-fpm-oci8/master/oracle/instantclient-sdk-linux.x64-12.2.0.1.0.zip | bsdtar -xvf-  -C /usr/local && \
- wget -qO- https://raw.githubusercontent.com/grptx/php-fpm-oci8/master/oracle/instantclient-sqlplus-linux.x64-12.2.0.1.0.zip | bsdtar -xvf- -C /usr/local && \
- ln -s /usr/local/instantclient_12_2 /usr/local/instantclient && \
- ln -s /usr/local/instantclient/libclntsh.so.* /usr/local/instantclient/libclntsh.so && \
- ln -s /usr/local/instantclient/lib* /usr/lib && \
- ln -s /usr/local/instantclient/sqlplus /usr/bin/sqlplus && \
- docker-php-ext-configure oci8 --with-oci8=instantclient,/usr/local/instantclient && \
- docker-php-ext-install oci8 && \
- rm -rf /var/lib/apt/lists/* && \
- php -v
-
-RUN wget http://php.net/distributions/php-7.2.12.tar.gz && \
-    mkdir php_oci && \
-    mv php-7.2.12.tar.gz ./php_oci
-WORKDIR php_oci
-RUN tar xfvz php-7.2.12.tar.gz
-WORKDIR php-7.2.12/ext/pdo_oci
-RUN phpize && \
-    ./configure --with-pdo-oci=instantclient,/usr/local/instantclient,12.1 && \
-    make && \
-    make install && \
-    echo extension=pdo_oci.so > /usr/local/etc/php/conf.d/pdo_oci.ini && \
-    rm -fr /var/www/php_oci && \
-    php -v
